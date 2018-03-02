@@ -125,8 +125,9 @@ dir_select.on_change('value', update_data)
 elas_select.on_change('value', update_data)
 
 inputs = widgetbox(dir_select, elas_select)
+#curdoc().add_root(row(inputs, p_line))
+
 script, div = components(row(inputs, p_line))
+#script, div = components(p_line)
 print(script)
 print(div)
-
-curdoc().add_root(row(inputs, p_line))
