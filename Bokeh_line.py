@@ -1,14 +1,10 @@
 import numpy as np
-import scipy
 import pandas as pd
-from bokeh.plotting import figure, save, show, ColumnDataSource
-from bokeh.models import (GMapPlot, GMapOptions, ColumnDataSource,
-                          Patch, Patches, Range1d, LogColorMapper,
-                          HoverTool, PanTool, WheelZoomTool,
-                          BoxSelectTool, SaveTool)
+from bokeh.plotting import figure, show
+from bokeh.models import (ColumnDataSource, HoverTool, PanTool,
+                          WheelZoomTool, BoxSelectTool, SaveTool)
 from bokeh.models.widgets import Select, Slider
-from bokeh.embed import components, autoload_static
-from bokeh.resources import CDN
+from bokeh.embed import components
 from bokeh.io import curdoc
 from bokeh.layouts import widgetbox, column, row
 from bokeh.palettes import Spectral6
@@ -90,7 +86,8 @@ source_line = ColumnDataSource(df_line)
 #set up plot
 colorwheel = Spectral6
 p_line = figure(tools=TOOLS, title="Taxi traffic reduction by region",
-                 x_axis_label="fee", y_axis_label="proportion of taxi rides")
+                x_axis_label="fee (dollars)",
+                y_axis_label="proportion of taxi rides")
 p_line.line('x', 'total', source=source_line, line_width=2,
             line_color=colorwheel[0], legend='Total')
 p_line.line('x', 'N', source=source_line, line_width=2,
@@ -128,8 +125,8 @@ dir_select.on_change('value', update_data)
 elas_select.on_change('value', update_data)
 
 inputs = widgetbox(dir_select, elas_select)
+script, div = components(row(inputs, p_line))
+print(script)
+print(div)
+
 curdoc().add_root(row(inputs, p_line))
-
-#layout = column(dir_select, elas_select, p_line)
-#show(layout)
-
