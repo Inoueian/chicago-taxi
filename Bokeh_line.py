@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from bokeh.plotting import figure, show
 from bokeh.models import (ColumnDataSource, HoverTool, PanTool,
-                          WheelZoomTool, BoxSelectTool, SaveTool)
+                          WheelZoomTool, BoxSelectTool, SaveTool, CustomJS)
 from bokeh.models.widgets import Select, Slider
 from bokeh.embed import components
 from bokeh.io import curdoc
@@ -45,6 +45,8 @@ df_avg['region'] = df_avg.apply(findDirection, axis=1)
 df_avg['census_tract'] = df_avg['census_tract'].apply(str)
 df_avg = df_avg.join(df_ratios[['ratio_from', 'ratio_to']], on='census_tract')
 
+avg_source = ColumnDataSource(df_avg)
+
 def traffic(region, fee=0, elasticity=0.5):
     if region == 'L': #no decrease for this
         return tuple(df_avg[df_avg['region']=='L'][['ratio_from', 'ratio_to']].sum())
@@ -81,22 +83,23 @@ df_line = pd.DataFrame(x, columns=['x'])
 df_line['total'] = df_line['x'].apply(lambda x: total_traffic(x, elasticity0)[direction_dict[direction0]])
 for region in regions:
     df_line[region] = df_line['x'].apply(lambda x: traffic(region, x, elasticity0)[direction_dict[direction0]])
-source_line = ColumnDataSource(df_line)
+source = ColumnDataSource(df_line)
 
 #set up plot
 colorwheel = Spectral6
 p_line = figure(tools=TOOLS, title="Taxi traffic reduction by region",
+                x_range=(0, 5), y_range=(0, 1),
                 x_axis_label="fee (dollars)",
                 y_axis_label="proportion of taxi rides")
-p_line.line('x', 'total', source=source_line, line_width=2,
+p_line.line('x', 'total', source=source, line_width=2,
             line_color=colorwheel[0], legend='Total')
-p_line.line('x', 'N', source=source_line, line_width=2,
+p_line.line('x', 'N', source=source, line_width=2,
             line_color=colorwheel[1], legend='North')
-p_line.line('x', 'W', source=source_line, line_width=2,
+p_line.line('x', 'W', source=source, line_width=2,
             line_color=colorwheel[2], legend='West')
-p_line.line('x', 'S', source=source_line, line_width=2,
+p_line.line('x', 'S', source=source, line_width=2,
             line_color=colorwheel[3], legend='South')
-p_line.line('x', 'L', source=source_line, line_width=2,
+p_line.line('x', 'L', source=source, line_width=2,
             line_color=colorwheel[4], legend='Loop')
 p_line.legend
 hover_line = HoverTool(tooltips=[("(x,y)", "($x, $y)")])    
@@ -107,27 +110,108 @@ dir_select = Select(value='from the Loop', title='direction',
 elas_select = Slider(value=0.5, start=0., end=1., step=0.1,
                     title='price elasticity')
 
-def update_data(attrname, old, new):
-    #Get the current values
-    direction = dir_select.value
-    elasticity = elas_select.value
+dir_callback = CustomJS(args=dict(source=source, avg_source=avg_source,
+                                 elas_select=elas_select), code="""
+    var data = source.data
+    var dir = cb_obj.value
+    var elas = elas_select.value
+    var avg_data = avg_source.data
 
-    #Generate new data
-    x = np.linspace(0, 5, 51)
-    df_line = pd.DataFrame(x, columns=['x'])
-    df_line['total'] = df_line['x'].apply(lambda x: total_traffic(x, elasticity)[direction_dict[direction]])
-    for region in regions:
-        df_line[region] = df_line['x'].apply(lambda x: traffic(region, x, elasticity)[direction_dict[direction]])
-    src = ColumnDataSource(df_line)
-    source_line.data.update(src.data)
+    regions = avg_data['region']
+    avgs = avg_data['avg']
+    if (dir == 'from the Loop') {
+        var ratios = avg_data['ratio_from']
+    } else {
+        var ratios = avg_data['ratio_to']
+    }
+    sum = ratios.reduce((a, b) => a + b, 0)
 
-dir_select.on_change('value', update_data)
-elas_select.on_change('value', update_data)
+    x = data['x']
+    total = data['total']
+    N = data['N']
+    W = data['W']
+    S = data['S']
+    L = data['L']
+
+    for (i = 0; i < x.length; i++) {
+        N[i] = 0
+        W[i] = 0
+        S[i] = 0
+        L[i] = 0
+        for (j = 0; j < regions.length; j++) {
+            if (regions[j] == 'N') {
+                N[i] += ratios[j] * (1 - elas * x[i] / avgs[j])
+            } else if (regions[j] == 'W') {
+                W[i] += ratios[j] * (1 - elas * x[i] / avgs[j])
+            } else if (regions[j] == 'S') {
+                S[i] += ratios[j] * (1 - elas * x[i] / avgs[j])
+            } else {
+                L[i] += ratios[j]
+            }
+        }
+        N[i] = N[i] / sum
+        W[i] = W[i] / sum
+        S[i] = S[i] / sum
+        L[i] = L[i] / sum
+        total[i] = N[i] + W[i] + S[i] + L[i]
+    }
+    source.change.emit()
+""")
+
+elas_callback = CustomJS(args=dict(source=source, avg_source=avg_source,
+                              dir_select=dir_select), code="""
+    var data = source.data
+    var avg_data = avg_source.data
+    var dir = dir_select.value
+    var elas = cb_obj.value
+    
+    regions = avg_data['region']
+    avgs = avg_data['avg']
+    if (dir == 'from the Loop') {
+        var ratios = avg_data['ratio_from']
+    } else {
+        var ratios = avg_data['ratio_to']
+    }
+    sum = ratios.reduce((a, b) => a + b, 0)
+    
+    x = data['x']
+    total = data['total']
+    N = data['N']
+    W = data['W']
+    S = data['S']
+    L = data['L']
+    
+    for (i = 0; i < x.length; i++) {
+        N[i] = 0
+        W[i] = 0
+        S[i] = 0
+        L[i] = 0
+        for (j = 0; j < regions.length; j++) {
+            if (regions[j] == 'N') {
+                N[i] += ratios[j] * (1 - elas * x[i] / avgs[j])
+            } else if (regions[j] == 'W') {
+                W[i] += ratios[j] * (1 - elas * x[i] / avgs[j])
+            } else if (regions[j] == 'S') {
+                S[i] += ratios[j] * (1 - elas * x[i] / avgs[j])
+            } else {
+                L[i] += ratios[j]
+            }
+        }
+        N[i] = N[i] / sum
+        W[i] = W[i] / sum
+        S[i] = S[i] / sum
+        L[i] = L[i] / sum
+        total[i] = N[i] + W[i] + S[i] + L[i]
+    }
+    source.change.emit()
+""")
+
+dir_select.js_on_change('value', dir_callback)
+elas_select.js_on_change('value', elas_callback)
 
 inputs = widgetbox(dir_select, elas_select)
 #curdoc().add_root(row(inputs, p_line))
 
 script, div = components(row(inputs, p_line))
-#script, div = components(p_line)
 print(script)
 print(div)
