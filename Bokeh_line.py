@@ -213,5 +213,8 @@ inputs = widgetbox(dir_select, elas_select)
 #curdoc().add_root(row(inputs, p_line))
 
 script, div = components(row(inputs, p_line))
-print(script)
-print(div)
+with open('bokeh_line.txt', 'w') as f:
+    f.write(script)
+    f.write(div)
+#print(script)
+#print(div)
